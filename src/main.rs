@@ -1,11 +1,11 @@
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
-use xml::reader::{XmlEvent, EventReader};
-use xml::common::{Position, TextPosition};
 use std::collections::HashMap;
 use std::env;
-use std::result::Result;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::result::Result;
+use xml::common::{Position, TextPosition};
+use xml::reader::{EventReader, XmlEvent};
 
 struct Lexer<'a> {
     content: &'a [char],
@@ -28,7 +28,10 @@ impl<'a> Lexer<'a> {
         token
     }
 
-    fn chop_while<P>(&mut self, mut predicate: P) -> &'a [char] where P: FnMut(&char) -> bool {
+    fn chop_while<P>(&mut self, mut predicate: P) -> &'a [char]
+    where
+        P: FnMut(&char) -> bool,
+    {
         let mut n = 0;
         while n < self.content.len() && predicate(&self.content[n]) {
             n += 1;
@@ -39,7 +42,7 @@ impl<'a> Lexer<'a> {
     fn next_token(&mut self) -> Option<&'a [char]> {
         self.trim_left();
         if self.content.is_empty() {
-            return None
+            return None;
         }
 
         if self.content[0].is_numeric() {
@@ -64,15 +67,21 @@ impl<'a> Iterator for Lexer<'a> {
 
 fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(file_path).map_err(|err| {
-        eprintln!("ERROR: could not open file {file_path}: {err}", file_path = file_path.display());
+        eprintln!(
+            "ERROR: could not open file {file_path}: {err}",
+            file_path = file_path.display()
+        );
     })?;
     let er = EventReader::new(file);
     let mut content = String::new();
     for event in er.into_iter() {
         let event = event.map_err(|err| {
-            let TextPosition {row, column} = err.position();
+            let TextPosition { row, column } = err.position();
             let msg = err.msg();
-            eprintln!("{file_path}:{row}:{column}: ERROR: {msg}", file_path = file_path.display());
+            eprintln!(
+                "{file_path}:{row}:{column}: ERROR: {msg}",
+                file_path = file_path.display()
+            );
         })?;
 
         if let XmlEvent::Characters(text) = event {
@@ -83,7 +92,7 @@ fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     Ok(content)
 }
 
-type TermFreq = HashMap::<String, usize>;
+type TermFreq = HashMap<String, usize>;
 type TermFreqIndex = HashMap<PathBuf, TermFreq>;
 
 fn check_index(index_path: &str) -> Result<(), ()> {
@@ -97,7 +106,10 @@ fn check_index(index_path: &str) -> Result<(), ()> {
         eprintln!("ERROR: could not parse index file {index_path}: {err}");
     })?;
 
-    println!("{index_path} contains {count} files", count = tf_index.len());
+    println!(
+        "{index_path} contains {count} files",
+        count = tf_index.len()
+    );
 
     Ok(())
 }
@@ -116,16 +128,35 @@ fn save_tf_index(tf_index: &TermFreqIndex, index_path: &str) -> Result<(), ()> {
     Ok(())
 }
 
-fn tf_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
+fn tf_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(), ()> {
     let dir = fs::read_dir(dir_path).map_err(|err| {
-        eprintln!("ERROR: could not open directory {dir_path} for indexing: {err}");
+        eprintln!(
+            "ERROR: could not open directory {dir_path} for indexing: {err}",
+            dir_path = dir_path.display()
+        );
     })?;
-    let mut tf_index = TermFreqIndex::new();
 
     'next_file: for file in dir {
-        let file_path = file.map_err(|err| {
-            eprintln!("ERROR: could not read next file in directory {dir_path} during indexing: {err}");
-        })?.path();
+        let file = file.map_err(|err| {
+            eprintln!(
+                "ERROR: could not read next file in directory {dir_path} during indexing: {err}",
+                dir_path = dir_path.display()
+            );
+        })?;
+
+        let file_path = file.path();
+
+        let file_type = file.file_type().map_err(|err| {
+            eprintln!(
+                "ERROR: could not determine type of file {file_path}: {err}",
+                file_path = file_path.display()
+            );
+        })?;
+
+        if file_type.is_dir() {
+            tf_index_of_folder(&file_path, tf_index)?;
+            continue 'next_file;
+        }
 
         println!("Indexing {:?}...", &file_path);
 
@@ -137,7 +168,10 @@ fn tf_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
         let mut tf = TermFreq::new();
 
         for token in Lexer::new(&content) {
-            let term = token.iter().map(|x| x.to_ascii_uppercase()).collect::<String>();
+            let term = token
+                .iter()
+                .map(|x| x.to_ascii_uppercase())
+                .collect::<String>();
             if let Some(freq) = tf.get_mut(&term) {
                 *freq += 1;
             } else {
@@ -145,20 +179,18 @@ fn tf_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
             }
         }
 
-        // let mut stats = tf.iter().collect::<Vec<_>>();
-        // stats.sort_by_key(|(_, f)| *f);
-        // stats.reverse();
-
         tf_index.insert(file_path, tf);
     }
 
-    Ok(tf_index)
+    Ok(())
 }
 
 fn usage(program: &str) {
     eprintln!("Usage: {program} [SUBCOMMAND] [OPTIONS]");
     eprintln!("Subcommands:");
-    eprintln!("    index <folder>         index the <folder> and save the index to index.json file");
+    eprintln!(
+        "    index <folder>         index the <folder> and save the index to index.json file"
+    );
     eprintln!("    search <index-file>    check how many documents are indexed in the file (searching is not implemented yet)");
 }
 
@@ -178,9 +210,10 @@ fn entry() -> Result<(), ()> {
                 eprintln!("ERROR: no directory is provided for {subcommand} subcommand");
             })?;
 
-            let tf_index = tf_index_of_folder(&dir_path)?;
+            let mut tf_index = TermFreqIndex::new();
+            tf_index_of_folder(Path::new(&dir_path), &mut tf_index)?;
             save_tf_index(&tf_index, "index.json")?;
-        },
+        }
         "search" => {
             let index_path = args.next().ok_or_else(|| {
                 usage(&program);
