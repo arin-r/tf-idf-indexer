@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::result::Result;
+use tiny_http::{Response, Server};
 use xml::common::{Position, TextPosition};
 use xml::reader::{EventReader, XmlEvent};
 
@@ -192,6 +193,7 @@ fn usage(program: &str) {
         "    index <folder>         index the <folder> and save the index to index.json file"
     );
     eprintln!("    search <index-file>    check how many documents are indexed in the file (searching is not implemented yet)");
+    eprintln!("    serve [address]        start local HTTP server with search interface (not implemented yet)");
 }
 
 fn entry() -> Result<(), ()> {
@@ -214,6 +216,7 @@ fn entry() -> Result<(), ()> {
             tf_index_of_folder(Path::new(&dir_path), &mut tf_index)?;
             save_tf_index(&tf_index, "index.json")?;
         }
+
         "search" => {
             let index_path = args.next().ok_or_else(|| {
                 usage(&program);
@@ -222,6 +225,47 @@ fn entry() -> Result<(), ()> {
 
             check_index(&index_path)?;
         }
+
+        "serve" => {
+            let address = args.next().unwrap_or("127.0.0.1:8080".to_owned());
+            let server = Server::http(&address).map_err(|err| {
+                eprintln!("ERROR: could not start HTTP server at {address}: {err}")
+            })?;
+
+            println!("Server is listening at {address}", address = address);
+
+            for request in server.incoming_requests() {
+                println!("Received request: {:?}", request);
+                let content_type_text_html = tiny_http::Header::from_bytes(
+                    &b"Content-Type"[..],
+                    &b"text/html; charset=utf-8"[..],
+                )
+                .unwrap();
+
+                let response = Response::from_string(
+                    r#"<!DOCTYPE html>
+                        <html lang="en">
+                        <head>
+                            <meta charset="utf-8">
+                            <title>Search</title>
+                        </head>
+                        <body>
+                            <h1>
+                                <b>Hello World!</b>
+                            </h1>
+                        </body>
+                        </html>
+                    "#,
+                )
+                .with_header(content_type_text_html);
+
+                // let response = Response::from_string("Hello, world!");
+                request.respond(response).unwrap_or_else(|err| {
+                    eprintln!("ERROR: could not respond to HTTP request: {err}");
+                });
+            }
+        }
+
         _ => {
             usage(&program);
             eprintln!("ERROR: unknown subcommand {subcommand}");
