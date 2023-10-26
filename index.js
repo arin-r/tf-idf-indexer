@@ -6,12 +6,13 @@ fetch("/api/search", {
   cache: "no-cache",
   credentials: "same-origin",
   headers: {
-    "Content-Type": "application/json",
+    "Content-Type": "text/plain",
   },
   redirect: "follow",
   referrerPolicy: "no-referrer",
 
-  body: JSON.stringify('{ "name": "John Doe" }'),
+  // body: JSON.stringify('{ "query": "bind texture to buffer" }'),
+  body: "bind texture to buffer",
 })
   .then((response) => {
     console.log(response);
