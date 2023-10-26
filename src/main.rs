@@ -196,62 +196,69 @@ fn usage(program: &str) {
     eprintln!("    serve [address]        start local HTTP server with search interface (not implemented yet)");
 }
 
-fn serve_request(request: Request) -> Result<(), ()> {
+fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> Result<(), ()> {
+    let content_type_header =
+        tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type).unwrap();
+
+    let file = File::open(file_path).map_err(|err| {
+        eprintln!(
+            "ERROR: could not open file {file_path}: {err}",
+            file_path = file_path
+        )
+    })?;
+
+    let response = Response::from_file(file).with_header(content_type_header);
+    request.respond(response).map_err(|err| {
+        eprintln!("ERROR: could not serve static file {file_path}: {err}");
+    })
+}
+
+fn serve_404(request: Request) -> Result<(), ()> {
+    let response = Response::from_string("Not found").with_status_code(StatusCode(404));
+    request.respond(response).map_err(|err| {
+        eprintln!("ERROR: could not respond to HTTP request: {err}");
+    })
+}
+
+fn serve_request(mut request: Request) -> Result<(), ()> {
     println!("Received request: {:?}", request);
-    match (request.method(), request.url()) {
-        (Method::Get, "/index.js") => {
-            let content_type_text_js = tiny_http::Header::from_bytes(
-                &b"Content-Type"[..],
-                &b"text/javascript; charset=utf-8"[..],
-            )
-            .unwrap();
+    match request.method() {
+        Method::Post => match request.url() {
+            "/api/search" => {
+                let mut buf = Vec::new();
+                request.as_reader().read_to_end(&mut buf).expect("could not read request body");
+                let body = std::str::from_utf8(&buf).map_err(
+                    |err| {
+                        eprintln!("ERROR: could not parse request body: {err}");
+                    }
+                )?;
 
-            let index_js_path = "index.js";
-            let index_js_file = File::open(index_js_path).map_err(|err| {
-                eprintln!(
-                    "ERROR: could not open index HTML file {index_html_path}: {err}",
-                    index_html_path = index_js_path
+                println!("Received search query: {body}", body = body);
+                let sample_json_response = serde_json::to_string(&vec!["hello", "world"]).map_err(
+                    |err| {
+                        eprintln!("ERROR: could not serialize search results: {err}");
+                    }
+                )?;
+
+                request.respond(Response::from_string(sample_json_response)).map_err(
+                    |err| {
+                        eprintln!("ERROR: could not respond to HTTP request: {err}");
+                    }
                 )
-            })?;
+            }
 
-            let response = Response::from_file(index_js_file).with_header(content_type_text_js);
+            _ => serve_404(request),
+        },
 
-            request.respond(response).map_err(|err| {
-                eprintln!("ERROR: could not respond to HTTP request: {err}");
-            })?;
-        }
-
-        (Method::Get, "/") | (Method::Get, "/index.html") => {
-            let content_type_text_html = tiny_http::Header::from_bytes(
-                &b"Content-Type"[..],
-                &b"text/html; charset=utf-8"[..],
-            )
-            .unwrap();
-
-            let index_html_path = "index.html";
-            let index_html_file = File::open(index_html_path).map_err(|err| {
-                eprintln!(
-                    "ERROR: could not open index HTML file {index_html_path}: {err}",
-                    index_html_path = index_html_path
-                )
-            })?;
-
-            let response = Response::from_file(index_html_file).with_header(content_type_text_html);
-
-            // let response = Response::from_string("Hello, world!");
-            request.respond(response).map_err(|err| {
-                eprintln!("ERROR: could not respond to HTTP request: {err}");
-            })?;
-        }
-
-        _ => {
-            let response = Response::from_string("Not found").with_status_code(StatusCode(404));
-            request.respond(response).map_err(|err| {
-                eprintln!("ERROR: could not respond to HTTP request: {err}");
-            })?;
-        }
+        Method::Get => match request.url() {
+            "/" | "/index.html" => {
+                serve_static_file(request, "index.html", "text/html; charset=utf-8")
+            }
+            "/index.js" => serve_static_file(request, "index.js", "text/javascript; charset=utf-8"),
+            _ => serve_404(request),
+        },
+        _ => serve_404(request),
     }
-    Ok(())
 }
 
 fn entry() -> Result<(), ()> {
@@ -290,7 +297,7 @@ fn entry() -> Result<(), ()> {
                 eprintln!("ERROR: could not start HTTP server at {address}: {err}")
             })?;
 
-            println!("Server is listening at {address}", address = address);
+            println!("Server is listening at http://{address}", address = address);
 
             for request in server.incoming_requests() {
                 serve_request(request)?;
