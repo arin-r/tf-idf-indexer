@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::result::Result;
-use tiny_http::{Response, Server};
+use tiny_http::{Method, Request, Response, Server, StatusCode};
 use xml::common::{Position, TextPosition};
 use xml::reader::{EventReader, XmlEvent};
 
@@ -196,6 +196,64 @@ fn usage(program: &str) {
     eprintln!("    serve [address]        start local HTTP server with search interface (not implemented yet)");
 }
 
+fn serve_request(request: Request) -> Result<(), ()> {
+    println!("Received request: {:?}", request);
+    match (request.method(), request.url()) {
+        (Method::Get, "/index.js") => {
+            let content_type_text_js = tiny_http::Header::from_bytes(
+                &b"Content-Type"[..],
+                &b"text/javascript; charset=utf-8"[..],
+            )
+            .unwrap();
+
+            let index_js_path = "index.js";
+            let index_js_file = File::open(index_js_path).map_err(|err| {
+                eprintln!(
+                    "ERROR: could not open index HTML file {index_html_path}: {err}",
+                    index_html_path = index_js_path
+                )
+            })?;
+
+            let response = Response::from_file(index_js_file).with_header(content_type_text_js);
+
+            request.respond(response).map_err(|err| {
+                eprintln!("ERROR: could not respond to HTTP request: {err}");
+            })?;
+        }
+
+        (Method::Get, "/") | (Method::Get, "/index.html") => {
+            let content_type_text_html = tiny_http::Header::from_bytes(
+                &b"Content-Type"[..],
+                &b"text/html; charset=utf-8"[..],
+            )
+            .unwrap();
+
+            let index_html_path = "index.html";
+            let index_html_file = File::open(index_html_path).map_err(|err| {
+                eprintln!(
+                    "ERROR: could not open index HTML file {index_html_path}: {err}",
+                    index_html_path = index_html_path
+                )
+            })?;
+
+            let response = Response::from_file(index_html_file).with_header(content_type_text_html);
+
+            // let response = Response::from_string("Hello, world!");
+            request.respond(response).map_err(|err| {
+                eprintln!("ERROR: could not respond to HTTP request: {err}");
+            })?;
+        }
+
+        _ => {
+            let response = Response::from_string("Not found").with_status_code(StatusCode(404));
+            request.respond(response).map_err(|err| {
+                eprintln!("ERROR: could not respond to HTTP request: {err}");
+            })?;
+        }
+    }
+    Ok(())
+}
+
 fn entry() -> Result<(), ()> {
     let mut args = env::args();
     let program = args.next().expect("path to program is provided");
@@ -235,34 +293,7 @@ fn entry() -> Result<(), ()> {
             println!("Server is listening at {address}", address = address);
 
             for request in server.incoming_requests() {
-                println!("Received request: {:?}", request);
-                let content_type_text_html = tiny_http::Header::from_bytes(
-                    &b"Content-Type"[..],
-                    &b"text/html; charset=utf-8"[..],
-                )
-                .unwrap();
-
-                let response = Response::from_string(
-                    r#"<!DOCTYPE html>
-                        <html lang="en">
-                        <head>
-                            <meta charset="utf-8">
-                            <title>Search</title>
-                        </head>
-                        <body>
-                            <h1>
-                                <b>Hello World!</b>
-                            </h1>
-                        </body>
-                        </html>
-                    "#,
-                )
-                .with_header(content_type_text_html);
-
-                // let response = Response::from_string("Hello, world!");
-                request.respond(response).unwrap_or_else(|err| {
-                    eprintln!("ERROR: could not respond to HTTP request: {err}");
-                });
+                serve_request(request)?;
             }
         }
 
