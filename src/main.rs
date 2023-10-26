@@ -1,12 +1,16 @@
-use std::collections::HashMap;
-use std::env;
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
-use std::result::Result;
+use std::{
+    collections::HashMap,
+    env,
+    fs::{self, File},
+    path::{Path, PathBuf},
+    process::ExitCode,
+    result::Result,
+};
 use tiny_http::{Method, Request, Response, Server, StatusCode};
-use xml::common::{Position, TextPosition};
-use xml::reader::{EventReader, XmlEvent};
+use xml::{
+    common::{Position, TextPosition},
+    reader::{EventReader, XmlEvent},
+};
 
 struct Lexer<'a> {
     content: &'a [char],
@@ -226,25 +230,25 @@ fn serve_request(mut request: Request) -> Result<(), ()> {
         Method::Post => match request.url() {
             "/api/search" => {
                 let mut buf = Vec::new();
-                request.as_reader().read_to_end(&mut buf).expect("could not read request body");
-                let body = std::str::from_utf8(&buf).map_err(
-                    |err| {
-                        eprintln!("ERROR: could not parse request body: {err}");
-                    }
-                )?;
+                request
+                    .as_reader()
+                    .read_to_end(&mut buf)
+                    .expect("could not read request body");
+                let body = std::str::from_utf8(&buf).map_err(|err| {
+                    eprintln!("ERROR: could not parse request body: {err}");
+                })?;
 
                 println!("Received search query: {body}", body = body);
-                let sample_json_response = serde_json::to_string(&vec!["hello", "world"]).map_err(
-                    |err| {
+                let sample_json_response =
+                    serde_json::to_string(&vec!["hello", "world"]).map_err(|err| {
                         eprintln!("ERROR: could not serialize search results: {err}");
-                    }
-                )?;
+                    })?;
 
-                request.respond(Response::from_string(sample_json_response)).map_err(
-                    |err| {
+                request
+                    .respond(Response::from_string(sample_json_response))
+                    .map_err(|err| {
                         eprintln!("ERROR: could not respond to HTTP request: {err}");
-                    }
-                )
+                    })
             }
 
             _ => serve_404(request),
